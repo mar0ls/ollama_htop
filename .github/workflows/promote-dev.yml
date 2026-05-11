@@ -75,6 +75,11 @@ jobs:
       - name: Create or reuse PR and squash-merge to main
         run: |
           SOURCE="${GITHUB_REF_NAME}"
+          AHEAD=$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${SOURCE}" --jq '.ahead_by')
+          if [ "${AHEAD}" -eq 0 ]; then
+            echo "Nothing to promote — ${SOURCE} is up to date with main."
+            exit 0
+          fi
           PR=$(gh pr list --base main --head "$SOURCE" --state open --json number --jq '.[0].number')
           if [ -z "$PR" ]; then
             PR=$(gh pr create \
