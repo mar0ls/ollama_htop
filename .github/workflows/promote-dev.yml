@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: Promote branch to main
 
-on:
+'on':
   push:
     branches-ignore:
       - main
@@ -75,16 +75,21 @@ jobs:
       - name: Create or reuse PR and squash-merge to main
         run: |
           SOURCE="${GITHUB_REF_NAME}"
+          AHEAD=$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${SOURCE}" --jq '.ahead_by')
+          if [ "${AHEAD}" -eq 0 ]; then
+            echo "Nothing to promote — ${SOURCE} is up to date with main."
+            exit 0
+          fi
           PR=$(gh pr list --base main --head "$SOURCE" --state open --json number --jq '.[0].number')
           if [ -z "$PR" ]; then
-            PR=$(gh pr create \
+            PR_URL=$(gh pr create \
               --base main \
               --head "$SOURCE" \
               --title "chore: promote ${SOURCE} to main" \
-              --body "Automated PR after successful validation of branch ${SOURCE}." \
-              --json number --jq '.number')
+              --body "Automated PR after successful validation of branch ${SOURCE}.")
+            PR=$(echo "$PR_URL" | grep -oE '[0-9]+$')
             echo "Created PR #$PR"
           else
             echo "Reusing existing PR #$PR"
           fi
-          gh pr merge "$PR" --squash --auto --delete-branch=false
+          gh pr merge "$PR" --squash --delete-branch=false
