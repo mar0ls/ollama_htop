@@ -1,0 +1,60 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install eBPF build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libelf-dev libbpf-dev
+
+      - name: Generate eBPF artifacts
+        run: make bpf-generate
+
+      - name: Run tests
+        run: |
+          go test -covermode=atomic -coverprofile=coverage.out ./...
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%","",$3); print $3}')
+          awk "BEGIN { exit !(${total} >= 9.0) }"
+
+      - name: Run vet
+        run: go vet ./...
+
+      - name: Build release binaries
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -ldflags "-X main.version=${TAG}" \
+            -o ollamaHtop-linux-amd64 ./cmd/ollamaHtop
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+            -ldflags "-X main.version=${TAG}" \
+            -o ollamaHtop-linux-arm64 ./cmd/ollamaHtop
+
+      - name: Create release and upload binaries
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            ollamaHtop-linux-amd64 \
+            ollamaHtop-linux-arm64 \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "Release ${GITHUB_REF_NAME}"

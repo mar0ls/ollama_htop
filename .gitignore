@@ -1,0 +1,14 @@
+# Binaries
+/ollamaHtop
+/ollamaHtop_linux
+/ollamaHtop-amd64
+/ollamaHtop-arm64
+ollamaHtop.log
+coverage.out
+*.o
+*_bpfel.go
+*_bpfeb.go
+*.bpf.o
+.idea/
+.vscode/
+.DS_Store

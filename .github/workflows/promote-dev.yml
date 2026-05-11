@@ -1,0 +1,90 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Promote branch to main
+
+on:
+  push:
+    branches-ignore:
+      - main
+      - master
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: promote-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install eBPF build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libelf-dev libbpf-dev
+
+      - name: Generate eBPF artifacts
+        run: make bpf-generate
+
+      - name: Build
+        run: go build ./...
+
+      - name: Detect test files
+        id: testfiles
+        run: |
+          if git ls-files '*_test.go' | grep -q .; then
+            echo "has_tests=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_tests=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run tests
+        if: steps.testfiles.outputs.has_tests == 'true'
+        run: |
+          go test -covermode=atomic -coverprofile=coverage.out ./...
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%","",$3); print $3}')
+          echo "Total coverage: ${total}%"
+          awk "BEGIN { exit !(${total} >= 9.0) }"
+
+      - name: Run vet
+        run: go vet ./...
+
+      - name: Verify generated eBPF artifacts are up to date
+        run: make bpf-check
+
+  promote:
+    needs: verify
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create or reuse PR and squash-merge to main
+        run: |
+          SOURCE="${GITHUB_REF_NAME}"
+          PR=$(gh pr list --base main --head "$SOURCE" --state open --json number --jq '.[0].number')
+          if [ -z "$PR" ]; then
+            PR=$(gh pr create \
+              --base main \
+              --head "$SOURCE" \
+              --title "chore: promote ${SOURCE} to main" \
+              --body "Automated PR after successful validation of branch ${SOURCE}." \
+              --json number --jq '.number')
+            echo "Created PR #$PR"
+          else
+            echo "Reusing existing PR #$PR"
+          fi
+          gh pr merge "$PR" --squash --auto --delete-branch=false

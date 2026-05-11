@@ -1,0 +1,68 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Build
+
+on:
+  pull_request:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  test-and-verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install eBPF build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libelf-dev libbpf-dev
+
+      - name: Generate eBPF artifacts
+        run: make bpf-generate
+
+      - name: Build
+        run: go build ./...
+
+      - name: Build release binaries
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ollamaHtop-amd64 ./cmd/ollamaHtop
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ollamaHtop-arm64 ./cmd/ollamaHtop
+
+      - name: Detect test files
+        id: testfiles
+        run: |
+          if git ls-files '*_test.go' | grep -q .; then
+            echo "has_tests=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_tests=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run tests
+        if: steps.testfiles.outputs.has_tests == 'true'
+        run: |
+          go test -covermode=atomic -coverprofile=coverage.out ./...
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%","",$3); print $3}')
+          echo "Total coverage: ${total}%"
+          awk "BEGIN { exit !(${total} >= 9.0) }"
+
+      - name: Run vet
+        run: go vet ./...
+
+      - name: Verify generated eBPF artifacts are up to date
+        run: make bpf-check
+
+      - name: Upload binaries artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ollamaHtop-binaries
+          path: |
+            ollamaHtop-amd64
+            ollamaHtop-arm64
