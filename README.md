@@ -147,14 +147,6 @@ The eBPF program attaches via the TCX API (kernel 6.6+). It uses `skb->ingress_i
 
 GPU power is used to compute **tok/W** — token-per-watt inference efficiency.
 
-## CI
-
-Gitea Actions workflows in `.github/workflows/`:
-
-- **build.yml** — runs on `pull_request` and tag pushes: `go build`, `go test` (≥ 9% coverage), `go vet`, `make bpf-check`, binaries as artifacts.
-- **promote-dev.yml** — runs on every branch push; validates, then opens and squash-merges a PR from the branch into `main` (skips `main`/`master`).
-- **release.yml** — runs on `v*` tags; builds `ollamaHtop-linux-amd64` and `ollamaHtop-linux-arm64` with the tag as version string, then creates a Gitea release with both binaries attached.
-
 ## Comparison
 
 | | ollamaHtop | olltop | Grafana/Prometheus |
